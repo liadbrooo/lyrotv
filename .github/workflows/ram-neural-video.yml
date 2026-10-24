@@ -1,0 +1,35 @@
+name: Render RAM 60s Neural Voice
+on:
+  push:
+    branches:
+      - ram-video-neural-voice
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout render scripts
+        uses: actions/checkout@v4
+      - name: Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+          python -m pip install --disable-pip-version-check pillow numpy edge-tts
+      - name: Render video and neural voice
+        run: python ram_video_builder.py
+      - name: Upload MP4
+        uses: actions/upload-artifact@v4
+        with:
+          name: RAM-60s-Neural-FullHD
+          path: RAM_60S_NEURAL_FULLHD.mp4
+          retention-days: 7
+          if-no-files-found: error
