@@ -320,7 +320,7 @@ struct Root: View {
                 .onDrop(of: [UTType.fileURL.identifier], isTargeted: $drop) { providers in
                     for (i, provider) in providers.enumerated() {
                         _ = provider.loadObject(ofClass: NSURL.self) { url, _ in
-                            if let url = url { DispatchQueue.main.async { p.add([url as URL], playFirst: i == 0) } }
+                            if let url = url as? NSURL { DispatchQueue.main.async { p.add([url as URL], playFirst: i == 0) } }
                         }
                     }
                     return !providers.isEmpty
