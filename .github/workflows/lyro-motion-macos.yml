@@ -1,0 +1,28 @@
+name: Lyro Motion macOS
+on:
+  push:
+    branches: [lyro-motion-macos]
+    paths:
+      - 'macos/**'
+      - '.github/workflows/lyro-motion-macos.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build universal app and DMG
+        run: bash macos/build.sh
+      - name: Upload macOS distribution
+        uses: actions/upload-artifact@v4
+        with:
+          name: LyroMotion-macOS
+          path: |
+            macos/dist/*.dmg
+            macos/dist/*.zip
+            macos/dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
