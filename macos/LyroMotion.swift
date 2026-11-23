@@ -3,6 +3,7 @@ import AppKit
 import AVKit
 import AVFoundation
 import UniformTypeIdentifiers
+import Combine
 
 private let accent = Color(red: 0.42, green: 0.76, blue: 1)
 private func clock(_ seconds: Double) -> String {
@@ -104,12 +105,15 @@ final class Player: ObservableObject {
     }
     func refresh(_ seconds: Double) {
         guard let item = engine.currentItem else { return }
-        if seconds.isFinite && seconds >= 0 { position = seconds }
+        if seconds.isFinite && seconds >= 0 && abs(position - seconds) > 0.01 { position = seconds }
         let d = item.duration.seconds
-        duration = d.isFinite && d > 0 ? d : 0
-        playing = engine.rate != 0
-        buffering = engine.timeControlStatus == .waitingToPlayAtSpecifiedRate
-        size = item.presentationSize
+        let newDuration = d.isFinite && d > 0 ? d : 0
+        if duration != newDuration { duration = newDuration }
+        let newPlaying = engine.rate != 0
+        if playing != newPlaying { playing = newPlaying }
+        let newBuffering = engine.timeControlStatus == .waitingToPlayAtSpecifiedRate
+        if buffering != newBuffering { buffering = newBuffering }
+        if size != item.presentationSize { size = item.presentationSize }
         if item.status == .failed && !failed {
             failed = true
             error = item.error?.localizedDescription ?? "Dieses Medium kann nicht abgespielt werden."
@@ -118,7 +122,8 @@ final class Player: ObservableObject {
             pendingResume = nil
             if p > 3 && p < duration - 5 { seek(p) }
         }
-        status = failed ? "Wiedergabefehler" : (item.status == .unknown ? "Wird geladen" : (buffering ? "Puffert …" : (playing ? "Wiedergabe" : "Pausiert")))
+        let newStatus = failed ? "Wiedergabefehler" : (item.status == .unknown ? "Wird geladen" : (buffering ? "Puffert …" : (playing ? "Wiedergabe" : "Pausiert")))
+        if status != newStatus { status = newStatus }
         let nextCaption = captionsEnabled ? (cues.first { $0.start <= position && position < $0.end }?.text ?? "") : ""
         if caption != nextCaption { caption = nextCaption }
         tick += 1
@@ -272,10 +277,13 @@ struct Root: View {
     @State private var search = ""
     @State private var dragging = false
     @State private var scrub = 0.0
-    @State private var hoverVideo = false
+    @State private var controlsVisible = true
+    @State private var hoverTransport = false
+    @State private var lastActivity = Date()
     @State private var drop = false
     @State private var address = ""
     private var animation: Animation? { reduced ? nil : .easeInOut(duration: 0.22) }
+    private var showTransport: Bool { !p.autoHide || !p.playing || controlsVisible || hoverTransport || dragging || p.current == nil }
     var body: some View {
         HStack(spacing: 0) {
             if p.sidebar { sidePanel.frame(width: 250).transition(.move(edge: .leading).combined(with: .opacity)); Divider().overlay(.white.opacity(0.06)) }
@@ -288,33 +296,49 @@ struct Root: View {
                         if p.buffering { ProgressView().controlSize(.large).tint(.white).frame(maxWidth: .infinity, maxHeight: .infinity) }
                         if !p.caption.isEmpty {
                             Text(p.caption).font(.system(size: 22, weight: .semibold)).multilineTextAlignment(.center).padding(.horizontal, 16).padding(.vertical, 7)
-                                .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 7)).padding(.bottom, 28).allowsHitTesting(false)
+                                .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 7)).padding(.bottom, showTransport ? 110 : 28).allowsHitTesting(false)
                         }
                     } else { empty }
+                    if showTransport {
+                        transport
+                            .onHover { hoverTransport = $0; lastActivity = Date() }
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
                     if drop { RoundedRectangle(cornerRadius: 12).strokeBorder(accent, style: StrokeStyle(lineWidth: 2, dash: [8])).padding(12).allowsHitTesting(false) }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
-                .onHover { h in withAnimation(animation) { hoverVideo = h } }
-                .onTapGesture(count: 2) { p.fullScreen() }
+                .onContinuousHover { phase in
+                    switch phase {
+                    case .active(_):
+                        lastActivity = Date()
+                        if !controlsVisible { withAnimation(animation) { controlsVisible = true } }
+                    case .ended: break
+                    }
+                }
+                
                 .onDrop(of: [UTType.fileURL.identifier], isTargeted: $drop) { providers in
                     for (i, provider) in providers.enumerated() {
-                        _ = provider.loadObject(ofClass: URL.self) { url, _ in
-                            if let url = url { DispatchQueue.main.async { p.add([url], playFirst: i == 0) } }
+                        _ = provider.loadObject(ofClass: NSURL.self) { url, _ in
+                            if let url = url { DispatchQueue.main.async { p.add([url as URL], playFirst: i == 0) } }
                         }
                     }
                     return !providers.isEmpty
                 }
                 if p.info && p.current != nil { details.transition(.move(edge: .bottom).combined(with: .opacity)) }
-                if !p.autoHide || !p.playing || hoverVideo || p.current == nil {
-                    transport.transition(.move(edge: .bottom).combined(with: .opacity))
-                }
+                
             }
         }
         .background(Color(red: 0.065, green: 0.075, blue: 0.095))
         .foregroundStyle(.white)
         .preferredColorScheme(.dark)
         .frame(minWidth: 760, minHeight: 490)
+        .onReceive(Timer.publish(every: 0.4, on: .main, in: .common).autoconnect()) { now in
+            if controlsVisible && p.playing && p.autoHide && !hoverTransport && !dragging && now.timeIntervalSince(lastActivity) > 3 {
+                withAnimation(animation) { controlsVisible = false }
+            }
+        }
+        .onChange(of: p.current) { _ in lastActivity = Date(); controlsVisible = true }
         .animation(animation, value: p.sidebar).animation(animation, value: p.info).animation(animation, value: p.playing)
         .alert("Lyro Motion", isPresented: Binding(get: { p.error != nil }, set: { if !$0 { p.error = nil } })) { Button("OK") { p.error = nil } } message: { Text(p.error ?? "") }
         .sheet(isPresented: $p.urlDialog) {
