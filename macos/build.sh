@@ -24,7 +24,8 @@ iconutil -c icns "$TMP/AppIcon.iconset" -o "$APP/Contents/Resources/AppIcon.icns
 plutil -lint "$APP/Contents/Info.plist"
 codesign --force --sign - "$APP"
 codesign --verify --strict --verbose=2 "$APP"
-lipo -verify_arch arm64 x86_64 "$APP/Contents/MacOS/LyroMotion"
+lipo "$APP/Contents/MacOS/LyroMotion" -verify_arch arm64 x86_64
+lipo -archs "$APP/Contents/MacOS/LyroMotion"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/LyroMotion-1.0.0-universal.zip"
 mkdir "$TMP/dmg"
 ditto "$APP" "$TMP/dmg/Lyro Motion.app"
